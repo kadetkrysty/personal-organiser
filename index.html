@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Personal Organiser</title>
+  <meta name="theme-color" content="#294b43" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Organiser" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <img src="icons/icon.svg" alt="" class="brand-icon" />
+      <div>
+        <h1>Personal Organiser</h1>
+        <p>A little structure. More room for life.</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span class="sync-pill" id="syncPill" hidden></span>
+      <button type="button" class="btn btn-ghost" id="settingsBtn" aria-label="Settings">Settings</button>
+    </div>
+  </header>
+
+  <main class="container">
+    <div id="syncBanner" class="banner" hidden>
+      <span id="syncBannerText"></span>
+      <button type="button" class="btn btn-primary btn-sm" id="syncNowBannerBtn">Sync now</button>
+    </div>
+
+    <section class="page-heading">
+      <div><p class="eyebrow">YOUR PERSONAL PLANNER</p><h2>Make time for what matters.</h2><p class="heading-note">Your routines, in one reassuring place.</p></div>
+      <button type="button" class="btn btn-primary" id="newTaskBtn"><span aria-hidden="true">+</span> New task</button>
+    </section>
+    <section class="toolbar" aria-label="Planner controls">
+      <nav class="view-switch" aria-label="Planner view">
+        <button type="button" data-view="calendar" aria-pressed="true">Calendar</button>
+        <button type="button" data-view="tasks" aria-pressed="false">Tasks</button>
+      </nav>
+      <div class="list-controls">
+      <label class="field inline">
+        <span class="sr-only">Filter by list</span>
+        <select id="listFilter"></select>
+      </label>
+      <button type="button" class="btn btn-dark btn-sm" id="manageListsBtn">Manage lists</button></div>
+    </section>
+
+    <section id="calendarView" class="calendar-panel" aria-label="Monthly calendar">
+      <div class="calendar-toolbar">
+        <div class="month-navigation">
+          <button type="button" class="nav-arrow" id="prevMonthBtn" aria-label="Previous month">&#8249;</button>
+          <h2 id="monthTitle" aria-live="polite"></h2>
+          <button type="button" class="nav-arrow" id="nextMonthBtn" aria-label="Next month">&#8250;</button>
+          <button type="button" class="btn btn-dark" id="todayBtn">Today</button>
+        </div>
+        <div class="legend" aria-label="Task priority colours"><span><i class="dot p-low"></i>Low</span><span><i class="dot p-medium"></i>Medium</span><span><i class="dot p-high"></i>High</span><span><i class="dot p-critical"></i>Critical</span></div>
+      </div>
+      <p class="calendar-instruction">Select a day to see its tasks. Select a task to make changes.</p>
+      <div class="weekdays" aria-hidden="true"><span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span></div>
+      <div id="calendarGrid" class="calendar-grid"></div>
+      <section class="day-agenda" aria-labelledby="agendaTitle">
+        <div class="agenda-heading"><div><p class="eyebrow">DAY AT A GLANCE</p><h3 id="agendaTitle"></h3></div><button type="button" class="btn btn-dark" id="addDayTaskBtn">+ Add for this day</button></div>
+        <p class="agenda-note">These are repeating tasks. Changes to a task, including its status, apply to its whole routine.</p>
+        <div id="agendaTasks"></div>
+      </section>
+    </section>
+
+    <section id="tasksView" hidden aria-label="Tasks by routine">
+    <div class="tasks-intro"><h2>Your regular routines</h2><p>Small things, kept on track. Select a task to edit its details.</p></div>
+    <nav class="tabs" id="mobileTabs" role="tablist">
+      <button type="button" data-tab="daily" role="tab" class="active">Daily</button>
+      <button type="button" data-tab="weekly" role="tab">Weekly</button>
+      <button type="button" data-tab="monthly" role="tab">Monthly</button>
+    </nav>
+
+    <section class="columns" id="columns"></section>
+    </section>
+    <footer class="planner-footer"><span>Personal Organiser</span><span>Designed & Built by Cristian Barlescu</span></footer>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+  <!-- Task modal -->
+  <div class="overlay" id="taskOverlay" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle" hidden>
+    <form class="modal" id="taskForm" novalidate>
+      <div class="modal-header">
+        <h2 id="taskModalTitle">Add Task</h2>
+        <button type="button" class="icon-btn" data-close="taskOverlay" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="routine-notice">This is a repeating task. Its details and status apply to every occurrence.</p>
+        <label class="field">
+          <span>Task Name *</span>
+          <input type="text" id="fTaskName" maxlength="255" required />
+        </label>
+        <label class="field">
+          <span>Description <em>(optional)</em></span>
+          <textarea id="fDescription" rows="3" placeholder="Add any details or instructions for this task..."></textarea>
+        </label>
+        <label class="field">
+          <span>List</span>
+          <select id="fList"></select>
+        </label>
+        <div class="grid-2">
+          <label class="field">
+            <span>Priority</span>
+            <select id="fPriority">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Status</span>
+            <select id="fStatus">
+              <option value="pending">Pending</option>
+              <option value="in_progress">In Progress</option>
+              <option value="completed">Completed</option>
+            </select>
+          </label>
+        </div>
+        <label class="field">
+          <span>Schedule Type</span>
+          <select id="fScheduleType">
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Time</span>
+          <input type="time" id="fTime" required />
+        </label>
+        <label class="check" id="weekdaysWrap">
+          <input type="checkbox" id="fWeekdays" />
+          <span>Weekdays only (Mon-Fri)</span>
+        </label>
+        <label class="field" id="dowWrap">
+          <span>Day of Week</span>
+          <select id="fDayOfWeek"></select>
+        </label>
+        <label class="field" id="domWrap">
+          <span>Day of Month</span>
+          <select id="fDayOfMonth"></select>
+        </label>
+        <p class="form-error" id="taskFormError" hidden></p>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-danger-outline" id="deleteTaskBtn" hidden>Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-dark" data-close="taskOverlay">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveTaskBtn">Create</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Lists modal -->
+  <div class="overlay" id="listsOverlay" role="dialog" aria-modal="true" aria-labelledby="listsTitle" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="listsTitle">Manage lists</h2>
+        <button type="button" class="icon-btn" data-close="listsOverlay" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="muted">Lists group your tasks, for example Home, Work, Health or Finance.</p>
+        <ul class="list-manager" id="listManager"></ul>
+        <form class="add-list" id="addListForm">
+          <input type="text" id="newListName" placeholder="New list name" maxlength="80" />
+          <button type="submit" class="btn btn-primary btn-sm">Add list</button>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-dark" data-close="listsOverlay">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings modal -->
+  <div class="overlay" id="settingsOverlay" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+    <div class="modal">
+      <div class="modal-header">
+        <h2 id="settingsTitle">Settings</h2>
+        <button type="button" class="icon-btn" data-close="settingsOverlay" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <section class="settings-section">
+          <h3>Reminders</h3>
+          <p class="muted" id="notifStatus"></p>
+          <div class="row-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="enableNotifBtn">Allow pop-up reminders</button>
+            <button type="button" class="btn btn-dark btn-sm" id="testNotifBtn">Send test reminder</button>
+          </div>
+          <label class="field">
+            <span>Remind me</span>
+            <select id="sReminderMinutes">
+              <option value="0">At the task time</option>
+              <option value="5">5 minutes before</option>
+              <option value="10">10 minutes before</option>
+              <option value="15">15 minutes before</option>
+              <option value="30">30 minutes before</option>
+              <option value="60">1 hour before</option>
+            </select>
+          </label>
+          <p class="muted small">Tasks synced to Google Calendar are reminded by the Calendar app, even when this app is closed. Other tasks are reminded by this app while it is open.</p>
+        </section>
+
+        <section class="settings-section">
+          <h3>Sync with Google</h3>
+          <p class="muted small">Keeps your tasks the same on all your devices (stored in a hidden app folder in your Google Drive) and adds them to Google Calendar. Use the same Google account and Client ID on every device.</p>
+          <p class="muted" id="gcalStatus"></p>
+          <div class="field">
+            <span class="label-row">
+              <label for="sClientId">Google OAuth Client ID</label>
+              <button type="button" class="info-btn" id="clientIdInfoBtn" aria-expanded="false" aria-controls="clientIdInfo" title="How do I get a Client ID?">i</button>
+            </span>
+            <div class="info-panel" id="clientIdInfo" hidden>
+              <div class="info-panel-head">
+                <strong>How to get your Client ID</strong>
+                <button type="button" class="icon-btn" id="clientIdInfoClose" aria-label="Close help">&times;</button>
+              </div>
+              <p>You only do this once (about 10 minutes, free). It gives this app permission to use <em>your</em> Google account. Easiest on a computer.</p>
+              <ol>
+                <li>Open <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener">Google Cloud Console</a> and sign in with your Google account. Create a new project called <b>Personal Organiser</b>, then click <b>Create</b>.</li>
+                <li>Turn on the two services this app uses. Open each link, check your new project is selected at the top, and click <b>Enable</b>:
+                  <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noopener">Google Calendar API</a> and
+                  <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener">Google Drive API</a>.</li>
+                <li>Open the <a href="https://console.cloud.google.com/auth/overview" target="_blank" rel="noopener">sign-in setup page</a> and click <b>Get started</b>. App name: <b>Personal Organiser</b>, support email: your email. Choose <b>External</b>, enter your email again, agree and click <b>Create</b>.</li>
+                <li>Go to <a href="https://console.cloud.google.com/auth/audience" target="_blank" rel="noopener">Audience</a>, under <b>Test users</b> click <b>Add users</b> and add your own Google email.</li>
+                <li>Go to <a href="https://console.cloud.google.com/auth/clients" target="_blank" rel="noopener">Clients</a> and click <b>Create client</b>. Application type: <b>Web application</b>.</li>
+                <li>Under <b>Authorised JavaScript origins</b> click <b>Add URI</b> and paste this app's address:
+                  <span class="copy-row"><code id="originText"></code><button type="button" class="btn btn-dark btn-sm" id="copyOriginBtn">Copy</button></span>
+                  If you also use the app from another address (for example your phone's web address), add that too. Then click <b>Create</b>.</li>
+                <li>Copy the <b>Client ID</b> shown (it ends in <code>.apps.googleusercontent.com</code>) and paste it in the box below.</li>
+                <li>Click <b>Connect Google account</b>. Google will say the app is "unverified" - that is normal for your own personal app: click <b>Continue</b> and tick both permissions.</li>
+              </ol>
+              <p class="small">Use the same Client ID on all your devices. You can find it again any time on the Clients page.</p>
+            </div>
+            <input type="text" id="sClientId" placeholder="xxxxxxxx.apps.googleusercontent.com" autocomplete="off" spellcheck="false" />
+          </div>
+          <div class="row-actions">
+            <button type="button" class="btn btn-primary btn-sm" id="gcalConnectBtn">Connect Google account</button>
+            <button type="button" class="btn btn-dark btn-sm" id="gcalSyncBtn">Sync now</button>
+            <button type="button" class="btn btn-danger-outline btn-sm" id="gcalDisconnectBtn">Disconnect</button>
+          </div>
+          <p class="muted small">New to this? Tap the <b>i</b> next to "Google OAuth Client ID" for step-by-step help.</p>
+        </section>
+
+        <section class="settings-section">
+          <h3>Backup</h3>
+          <p class="muted small">Export a copy of your lists and tasks for safekeeping. Google sync can also keep your devices up to date. Importing a backup replaces your current lists and tasks.</p>
+          <div class="row-actions">
+            <button type="button" class="btn btn-dark btn-sm" id="exportBtn">Export backup</button>
+            <label class="btn btn-dark btn-sm file-btn">
+              Import backup
+              <input type="file" id="importInput" accept="application/json,.json" />
+            </label>
+          </div>
+        </section>
+      </div>
+      <div class="modal-footer">
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-dark" data-close="settingsOverlay">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm modal -->
+  <div class="overlay" id="confirmOverlay" role="alertdialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmText" hidden>
+    <div class="modal modal-sm">
+      <div class="modal-header"><h2 id="confirmTitle">Are you sure?</h2></div>
+      <div class="modal-body"><p id="confirmText"></p></div>
+      <div class="modal-footer">
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-dark" id="confirmCancel">Cancel</button>
+        <button type="button" class="btn btn-danger" id="confirmOk">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
