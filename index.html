@@ -67,22 +67,23 @@
       <div id="calendarGrid" class="calendar-grid"></div>
       <section class="day-agenda" aria-labelledby="agendaTitle">
         <div class="agenda-heading"><div><p class="eyebrow">DAY AT A GLANCE</p><h3 id="agendaTitle"></h3></div><button type="button" class="btn btn-dark" id="addDayTaskBtn">+ Add for this day</button></div>
-        <p class="agenda-note">These are repeating tasks. Changes to a task, including its status, apply to its whole routine.</p>
+        <p class="agenda-note">For repeating tasks, changes (including status) apply to every day the task repeats.</p>
         <div id="agendaTasks"></div>
       </section>
     </section>
 
     <section id="tasksView" hidden aria-label="Tasks by routine">
-    <div class="tasks-intro"><h2>Your regular routines</h2><p>Small things, kept on track. Select a task to edit its details.</p></div>
+    <div class="tasks-intro"><h2>Your tasks</h2><p>Routines and one-off jobs, kept on track. Select a task to edit its details.</p></div>
     <nav class="tabs" id="mobileTabs" role="tablist">
       <button type="button" data-tab="daily" role="tab" class="active">Daily</button>
       <button type="button" data-tab="weekly" role="tab">Weekly</button>
       <button type="button" data-tab="monthly" role="tab">Monthly</button>
+      <button type="button" data-tab="once" role="tab">One-off</button>
     </nav>
 
     <section class="columns" id="columns"></section>
     </section>
-    <footer class="planner-footer"><span>Personal Organiser</span><span>Designed & Built by Cristian Barlescu</span></footer>
+    <footer class="planner-footer"><span>Personal Organiser</span><span>A steady rhythm for everyday life.</span></footer>
   </main>
 
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
@@ -95,7 +96,7 @@
         <button type="button" class="icon-btn" data-close="taskOverlay" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="routine-notice">This is a repeating task. Its details and status apply to every occurrence.</p>
+        <p class="routine-notice" id="routineNotice">This is a repeating task. Its details and status apply to every occurrence.</p>
         <label class="field">
           <span>Task Name *</span>
           <input type="text" id="fTaskName" maxlength="255" required />
@@ -133,7 +134,12 @@
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
+            <option value="once">One-off (does not repeat)</option>
           </select>
+        </label>
+        <label class="field" id="dateWrap" hidden>
+          <span>Date</span>
+          <input type="date" id="fDate" />
         </label>
         <label class="field">
           <span>Time</span>
@@ -286,6 +292,7 @@
     </div>
   </div>
 
+  <script src="picker.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
