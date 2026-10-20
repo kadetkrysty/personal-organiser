@@ -1,12 +1,11 @@
 PERSONAL ORGANISER
 ==================
 
-A standalone version of the Pinebridge Tasks module for personal use:
+Features:
 daily, weekly and monthly recurring tasks with a name, optional description,
 priority, status, time, "weekdays only", and day of week / day of month.
 Tasks are grouped into your own lists (for example Home, Work, Health).
-
-It is completely separate from the Pinebridge app. There is no login and no
+ There is no login and no
 server database: your tasks are stored in the browser on each device.
 Connect your Google account (section 4) and the same tasks appear on all your
 devices and in Google Calendar. Settings > Export backup gives you a file copy.
