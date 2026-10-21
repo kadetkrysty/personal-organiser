@@ -1,5 +1,5 @@
 // Offline support: app files are cached; Google services always go to the network.
-var CACHE = 'personal-organiser-v6';
+var CACHE = 'personal-organiser-v7';
 var FILES = ['./', './index.html', './styles.css', './app.js', './picker.js', './manifest.webmanifest',
   './icons/icon.svg', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 

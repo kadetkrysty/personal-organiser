@@ -439,7 +439,8 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #b6c8a9; border-c
   .tasks-intro { padding: 8px 2px 20px; }
   .tasks-intro h2 { font-size: 22px; }
   .tasks-intro p { font-size: 12px; }
-  .tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 15px; }
+  .tabs { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 15px; }
+  .tabs button { padding-left: 2px; padding-right: 2px; }
   .tabs button { min-height: 46px; background: var(--card); color: var(--muted); font-size: 13px; border-radius: 8px; }
   .tabs button.active { background: #dfe8d7; color: var(--text); border-color: #bcccb0; }
   .columns { grid-template-columns: 1fr; }
@@ -532,3 +533,38 @@ input:focus, select:focus, textarea:focus { outline: 2px solid #b6c8a9; border-c
 .pp-list { height: 200px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
 .pp-item { display: block; width: 100%; height: 40px; border: 0; background: transparent; color: var(--text); font-size: 16px; font-weight: 500; cursor: pointer; }
 .pp-item.pp-selected { background: var(--teal); color: #fff; font-weight: 700; }
+
+@media (min-width: 1151px) { .columns { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; } }
+
+/* Custom repeats and per-day changes */
+input[type="number"] {
+  font: inherit; font-size: 16px; width: 100%; color: var(--text); background: var(--card);
+  border: 1px solid #cfd5c9; border-radius: 8px; min-height: 46px; padding: 10px 12px;
+}
+.repeat-row { display: flex; gap: 8px; }
+.repeat-row input { width: 76px; flex-shrink: 0; }
+.repeat-row select { flex: 1; min-width: 0; }
+.custom-preview { background: #edf1e6; border-radius: 8px; padding: 11px 13px; margin: -4px 0 18px; font-size: 13px; color: #4f6249; }
+.custom-preview:empty { display: none; }
+.custom-preview strong { display: block; font-size: 12px; margin-bottom: 4px; color: var(--text); }
+.custom-preview ul { margin: 0; padding-left: 18px; }
+.custom-preview p { margin: 0; }
+.preview-problem { color: var(--danger); }
+.changed-days { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 18px; }
+.changed-days-title { font-weight: 600; font-size: 12px; }
+.changed-days p { margin: 4px 0 8px; }
+.changed-days ul { list-style: none; margin: 0; padding: 0; }
+.changed-days li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid #eeefe8; font-size: 13px; }
+.changed-days li > span { min-width: 0; overflow-wrap: anywhere; }
+.changed-flag { color: #8a642d; }
+.event-chip.changed { border-left-style: dashed; }
+.agenda-extra { font-size: 12px; color: #8a642d; }
+.occ-summary { display: flex; flex-direction: column; gap: 2px; margin-bottom: 14px; }
+.occ-summary strong { font-size: 17px; font-weight: 600; }
+.pp-links { display: inline-flex; gap: 4px; }
+@media (max-width: 767px) { .agenda-extra { font-size: 10px; } }
+
+/* Task description in the day list and the single-day editor */
+.agenda-details > .agenda-desc { font-size: 13px; color: var(--text); white-space: pre-line; overflow-wrap: anywhere; }
+.occ-desc { margin: 8px 0 0; font-size: 14px; line-height: 1.45; white-space: pre-line; overflow-wrap: anywhere; color: var(--text); }
+@media (max-width: 767px) { .agenda-details > .agenda-desc { font-size: 12px; } }

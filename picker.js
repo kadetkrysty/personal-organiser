@@ -137,7 +137,7 @@
   }
 
   // ---------- Date panel ----------
-  function datePanel(card, value, commit) {
+  function datePanel(card, value, commit, optional) {
     var now = new Date();
     var sel = parseDate(value);
     var init = sel || { y: now.getFullYear(), m: now.getMonth() + 1, d: now.getDate() };
@@ -166,11 +166,19 @@
     card.appendChild(body);
 
     var today = button('pp-link', 'Today');
+    var links = today;
+    if (optional) {
+      links = el('span', 'pp-links');
+      var clear = button('pp-link', 'Clear');
+      clear.addEventListener('click', function () { commit(''); close(); });
+      links.appendChild(today);
+      links.appendChild(clear);
+    }
     var setBtn = footer(card, function () {
       if (!sel) { close(); return; }
       commit(fmtDate(sel.y, sel.m, sel.d));
       close();
-    }, today);
+    }, links);
 
     function fillYears() {
       var first = Math.min(now.getFullYear() - 100, viewY), last = Math.max(now.getFullYear() + 50, viewY);
@@ -277,7 +285,8 @@
   // ---------- Public ----------
   function enhance(input) {
     var kind = input.getAttribute('type') === 'time' ? 'time' : 'date';
-    var placeholder = kind === 'time' ? 'Select time' : 'Select date';
+    var placeholder = input.getAttribute('data-placeholder') || (kind === 'time' ? 'Select time' : 'Select date');
+    var optional = input.getAttribute('data-optional') === 'true';
     var trigger = button('pp-trigger');
     trigger.id = input.id + 'Btn';
     var text = el('span', 'pp-trigger-text');
@@ -305,7 +314,7 @@
     trigger.addEventListener('click', function () {
       if (current) { close(); return; }
       if (kind === 'time') openPopover(input, trigger, 260, 'Time picker', function (card) { timePanel(card, input.value, commit); });
-      else openPopover(input, trigger, 320, 'Date picker', function (card) { datePanel(card, input.value, commit); });
+      else openPopover(input, trigger, 320, 'Date picker', function (card) { datePanel(card, input.value, commit, optional); });
     });
     refresh();
     return trigger;

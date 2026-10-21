@@ -67,7 +67,7 @@
       <div id="calendarGrid" class="calendar-grid"></div>
       <section class="day-agenda" aria-labelledby="agendaTitle">
         <div class="agenda-heading"><div><p class="eyebrow">DAY AT A GLANCE</p><h3 id="agendaTitle"></h3></div><button type="button" class="btn btn-dark" id="addDayTaskBtn">+ Add for this day</button></div>
-        <p class="agenda-note">For repeating tasks, changes (including status) apply to every day the task repeats.</p>
+        <p class="agenda-note">Select a repeating task to change or remove just that day, or choose Edit all days to change the whole schedule.</p>
         <div id="agendaTasks"></div>
       </section>
     </section>
@@ -79,6 +79,7 @@
       <button type="button" data-tab="weekly" role="tab">Weekly</button>
       <button type="button" data-tab="monthly" role="tab">Monthly</button>
       <button type="button" data-tab="once" role="tab">One-off</button>
+      <button type="button" data-tab="custom" role="tab">Custom</button>
     </nav>
 
     <section class="columns" id="columns"></section>
@@ -96,7 +97,7 @@
         <button type="button" class="icon-btn" data-close="taskOverlay" aria-label="Close">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="routine-notice" id="routineNotice">This is a repeating task. Its details and status apply to every occurrence.</p>
+        <p class="routine-notice" id="routineNotice">This is a repeating task. Changes here apply to every day. To change or remove a single day, select that day on the calendar.</p>
         <label class="field">
           <span>Task Name *</span>
           <input type="text" id="fTaskName" maxlength="255" required />
@@ -135,16 +136,46 @@
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
             <option value="once">One-off (does not repeat)</option>
+            <option value="custom">Custom repeat (several days, every few weeks...)</option>
           </select>
         </label>
         <label class="field" id="dateWrap" hidden>
-          <span>Date</span>
+          <span id="dateLabel">Date</span>
           <input type="date" id="fDate" />
         </label>
         <label class="field">
           <span>Time</span>
           <input type="time" id="fTime" required />
         </label>
+        <div id="customWrap" hidden>
+          <div class="grid-2">
+            <label class="field">
+              <span>Days in a row</span>
+              <input type="number" id="fSpanDays" min="1" max="31" step="1" inputmode="numeric" />
+            </label>
+            <div class="field">
+              <span id="repeatEveryLabel">Repeat every</span>
+              <div class="repeat-row" role="group" aria-labelledby="repeatEveryLabel">
+                <input type="number" id="fRepeatEvery" min="1" max="99" step="1" inputmode="numeric" aria-label="Repeat every (number)" />
+                <select id="fRepeatUnit" aria-label="Repeat every (unit)">
+                  <option value="days">days</option>
+                  <option value="weeks">weeks</option>
+                  <option value="months">months</option>
+                </select>
+              </div>
+            </div>
+          </div>
+          <label class="field">
+            <span>Repeat until <em>(optional)</em></span>
+            <input type="date" id="fEndDate" data-optional="true" data-placeholder="No end date" />
+          </label>
+          <div class="custom-preview" id="customPreview" aria-live="polite"></div>
+        </div>
+        <div class="changed-days" id="changedDaysWrap" hidden>
+          <span class="changed-days-title">Changed days</span>
+          <p class="muted small">These days differ from the normal schedule. Restore a day to put it back to normal.</p>
+          <ul id="changedDaysList"></ul>
+        </div>
         <label class="check" id="weekdaysWrap">
           <input type="checkbox" id="fWeekdays" />
           <span>Weekdays only (Mon-Fri)</span>
@@ -164,6 +195,51 @@
         <span class="spacer"></span>
         <button type="button" class="btn btn-dark" data-close="taskOverlay">Cancel</button>
         <button type="submit" class="btn btn-primary" id="saveTaskBtn">Create</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- Single day of a repeating task -->
+  <div class="overlay" id="occOverlay" role="dialog" aria-modal="true" aria-labelledby="occTitle" hidden>
+    <form class="modal modal-sm" id="occForm" novalidate>
+      <div class="modal-header">
+        <h2 id="occTitle">Change this day</h2>
+        <button type="button" class="icon-btn" data-close="occOverlay" aria-label="Close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="occ-summary">
+          <strong id="occTaskName"></strong>
+          <span id="occDate"></span>
+          <span class="muted small" id="occSeries"></span>
+          <p class="occ-desc" id="occDesc" hidden></p>
+        </div>
+        <p class="routine-notice">Changes here apply to this day only. The rest of the schedule stays the same.</p>
+        <label class="field">
+          <span>Time</span>
+          <input type="time" id="fOccTime" required />
+        </label>
+        <label class="field">
+          <span>Status for this day</span>
+          <select id="fOccStatus">
+            <option value="pending">Pending</option>
+            <option value="in_progress">In Progress</option>
+            <option value="completed">Completed</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>Note for this day <em>(optional)</em></span>
+          <textarea id="fOccNote" rows="2" placeholder="For example: finishes early today"></textarea>
+        </label>
+        <div class="row-actions">
+          <button type="button" class="btn btn-danger-outline btn-sm" id="occRemoveBtn">Remove this day</button>
+          <button type="button" class="btn btn-dark btn-sm" id="occResetBtn" hidden>Back to normal</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-dark" id="occSeriesBtn">Edit all days</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn btn-dark" data-close="occOverlay">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
       </div>
     </form>
   </div>

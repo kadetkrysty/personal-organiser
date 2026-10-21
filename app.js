@@ -29,8 +29,10 @@
     { type: 'daily', title: 'Daily Tasks' },
     { type: 'weekly', title: 'Weekly Tasks' },
     { type: 'monthly', title: 'Monthly Tasks' },
-    { type: 'once', title: 'One-off Tasks' }
+    { type: 'once', title: 'One-off Tasks' },
+    { type: 'custom', title: 'Custom Repeats' }
   ];
+  var UNIT_DAYS = { days: 1, weeks: 7, months: 28 }; // shortest length of each unit (for the "days in a row" limit)
 
   // ---------- Utilities ----------
   function $(id) { return document.getElementById(id); }
@@ -171,15 +173,59 @@
     return dateFromKey(key).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
   }
 
+  function shortDay(key) { return dateFromKey(key).toLocaleDateString(undefined, { weekday: 'short' }); }
+  function addDays(key, n) { var d = dateFromKey(key); d.setDate(d.getDate() + n); return localDateKey(d); }
+  // Whole days from a to b (date keys), immune to daylight-saving changes.
+  function dayDiff(a, b) {
+    var pa = a.split('-'), pb = b.split('-');
+    return Math.round((Date.UTC(+pb[0], pb[1] - 1, +pb[2]) - Date.UTC(+pa[0], pa[1] - 1, +pa[2])) / 864e5);
+  }
+  // Start of the k-th monthly block: same day of month as the first block, or the month's last day if shorter.
+  function addMonthsKey(key, k) {
+    var p = key.split('-');
+    var y = +p[0], m = +p[1] - 1 + k;
+    var last = new Date(y, m + 1, 0).getDate();
+    return localDateKey(new Date(y, m, Math.min(+p[2], last)));
+  }
+  function unitLabel(n, unit) { return n === 1 ? unit.replace(/s$/, '') : n + ' ' + unit; }
+
   function formatSchedule(t) {
     if (t.scheduleType === 'once') return (t.scheduleDate ? formatDate(t.scheduleDate) : 'No date') + ' at ' + t.scheduleTime;
     if (t.scheduleType === 'daily') return (t.weekdaysOnly ? 'Weekdays at ' : 'Daily at ') + t.scheduleTime;
     if (t.scheduleType === 'weekly') return DAYS[t.scheduleDayOfWeek || 0] + ' at ' + t.scheduleTime;
+    if (t.scheduleType === 'custom') {
+      var span = Number(t.spanDays) || 1;
+      var days = span === 1 ? shortDay(t.scheduleDate) : shortDay(t.scheduleDate) + '–' + shortDay(addDays(t.scheduleDate, span - 1));
+      return (span === 1 ? '1 day' : span + ' days') + (t.repeatUnit !== 'days' ? ' (' + days + ')' : '') +
+        ', every ' + unitLabel(Number(t.repeatEvery) || 1, t.repeatUnit) + ' at ' + t.scheduleTime +
+        ', from ' + formatDate(t.scheduleDate) + (t.endDate ? ' until ' + formatDate(t.endDate) : '');
+    }
     return 'Day ' + t.scheduleDayOfMonth + ' at ' + t.scheduleTime;
   }
 
-  function occursOn(t, d) {
-    if (t.scheduleType === 'once') return !!t.scheduleDate && localDateKey(d) === t.scheduleDate;
+  // For custom repeats: which day of its block (0-based) a date is, or -1 if it is not in a block.
+  function customDayIndex(t, key) {
+    if (!t.scheduleDate || key < t.scheduleDate || (t.endDate && key > t.endDate)) return -1;
+    var span = Number(t.spanDays) || 1, every = Number(t.repeatEvery) || 1;
+    if (t.repeatUnit === 'months') {
+      var s = t.scheduleDate.split('-'), d = key.split('-');
+      var months = (d[0] - s[0]) * 12 + (d[1] - s[1]);
+      for (var k = Math.floor(months / every) * every; k >= 0 && k >= months - every - 1; k -= every) {
+        var off = dayDiff(addMonthsKey(t.scheduleDate, k), key);
+        if (off >= 0 && off < span) return off;
+      }
+      return -1;
+    }
+    var period = every * (t.repeatUnit === 'weeks' ? 7 : 1);
+    var offset = dayDiff(t.scheduleDate, key) % period;
+    return offset < span ? offset : -1;
+  }
+
+  // Does the normal schedule (ignoring per-day changes) put the task on this date?
+  function scheduledOn(t, d) {
+    var key = localDateKey(d);
+    if (t.scheduleType === 'once') return !!t.scheduleDate && key === t.scheduleDate;
+    if (t.scheduleType === 'custom') return customDayIndex(t, key) >= 0;
     if (t.scheduleType === 'daily') {
       var dow = d.getDay();
       return !t.weekdaysOnly || (dow >= 1 && dow <= 5);
@@ -188,27 +234,119 @@
     return d.getDate() === Number(t.scheduleDayOfMonth);
   }
 
-  function nextOccurrence(t, from) {
-    var parts = t.scheduleTime.split(':');
-    if (t.scheduleType === 'once') {
-      var o = dateFromKey(t.scheduleDate);
-      o.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
-      return o;
-    }
-    var d = new Date(from.getTime());
-    d.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
-    for (var i = 0; i < 400; i++) {
-      if (occursOn(t, d) && d.getTime() >= from.getTime()) return d;
-      d.setDate(d.getDate() + 1);
-      d.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
-    }
-    return d;
+  function exceptionFor(t, key) { return t.exceptions && t.exceptions[key] ? t.exceptions[key] : null; }
+
+  // The task as it happens on one date (with that day's changes), or null if it does not happen.
+  function occurrence(t, d) {
+    if (!scheduledOn(t, d)) return null;
+    var key = localDateKey(d);
+    var ex = t.scheduleType === 'once' ? null : exceptionFor(t, key);
+    if (ex && ex.removed) return null;
+    return {
+      task: t, key: key,
+      time: (ex && ex.time) || t.scheduleTime,
+      status: (ex && ex.status) || t.status,
+      note: (ex && ex.note) || '',
+      changed: !!ex,
+      dayIndex: t.scheduleType === 'custom' ? customDayIndex(t, key) : -1
+    };
   }
 
-  function buildRRule(t) {
-    if (t.scheduleType === 'daily') return t.weekdaysOnly ? 'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' : 'RRULE:FREQ=DAILY';
-    if (t.scheduleType === 'weekly') return 'RRULE:FREQ=WEEKLY;BYDAY=' + RRULE_DAYS[Number(t.scheduleDayOfWeek) || 0];
-    return 'RRULE:FREQ=MONTHLY;BYMONTHDAY=' + Number(t.scheduleDayOfMonth);
+  function occursOn(t, d) { return !!occurrence(t, d); }
+
+  function changedDayCount(t) { return t.exceptions ? Object.keys(t.exceptions).length : 0; }
+
+  // First day on or after `from` that the normal schedule (ignoring per-day changes) lands on, at the task's time.
+  // Used as the Calendar event's start, so it always lines up with the repeat pattern.
+  function nextOccurrence(t, from) {
+    var parts = t.scheduleTime.split(':');
+    var setTime = function (d) { d.setHours(Number(parts[0]), Number(parts[1]), 0, 0); return d; };
+    if (t.scheduleType === 'once') return setTime(dateFromKey(t.scheduleDate));
+    var d = setTime(new Date(from.getTime()));
+    if (t.scheduleType === 'custom' && t.scheduleDate) {
+      var first = setTime(dateFromKey(t.scheduleDate));
+      if (first > d) d = first;
+    }
+    var limit = t.scheduleType === 'custom' ? 3700 : 400;
+    for (var i = 0; i < limit; i++) {
+      if (scheduledOn(t, d) && d.getTime() >= from.getTime()) return d;
+      if (t.scheduleType === 'custom' && t.endDate && localDateKey(d) > t.endDate) break;
+      d.setDate(d.getDate() + 1);
+      setTime(d);
+    }
+    return null; // schedule has ended
+  }
+
+  function icsLocal(key, time) { return key.replace(/-/g, '') + 'T' + time.replace(':', '') + '00'; }
+  function icsUntil(key) { // end of that local day, in UTC as Google requires
+    var d = dateFromKey(key); d.setHours(23, 59, 59, 0);
+    return d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  }
+
+  // A single repeat rule for a custom repeat, when Google Calendar can express it exactly; otherwise null.
+  function customRRule(t) {
+    var span = Number(t.spanDays) || 1, every = Number(t.repeatEvery) || 1;
+    var until = t.endDate ? ';UNTIL=' + icsUntil(t.endDate) : '';
+    var start = dateFromKey(t.scheduleDate);
+    var unit = t.repeatUnit;
+    var period = every * (unit === 'weeks' ? 7 : 1);
+    if (unit === 'days' && span === 1) return 'RRULE:FREQ=DAILY;INTERVAL=' + every + until;
+    if (unit === 'days' && period % 7 === 0) { unit = 'weeks'; every = period / 7; }
+    if (unit === 'weeks' && span <= 7) {
+      var days = [];
+      for (var i = 0; i < span; i++) days.push(RRULE_DAYS[(start.getDay() + i) % 7]);
+      // Weeks counted from the block's first weekday, so a block never straddles two counted weeks.
+      return 'RRULE:FREQ=WEEKLY;INTERVAL=' + every + ';WKST=' + RRULE_DAYS[start.getDay()] + ';BYDAY=' + days.join(',') + until;
+    }
+    if (unit === 'months' && start.getDate() + span - 1 <= 28) {
+      var md = [];
+      for (var j = 0; j < span; j++) md.push(start.getDate() + j);
+      return 'RRULE:FREQ=MONTHLY;INTERVAL=' + every + ';BYMONTHDAY=' + md.join(',') + until;
+    }
+    return null;
+  }
+
+  // Custom repeats that no single rule can express are sent as a list of dates, up to a year ahead
+  // (or the end date). The list is topped up automatically as time passes (see calSig).
+  var LIST_HORIZON_DAYS = 400;
+  function listedDates(t, fromKey) {
+    var out = [], key = fromKey, last = addDays(fromKey, LIST_HORIZON_DAYS);
+    if (t.endDate && t.endDate < last) last = t.endDate;
+    for (; key <= last; key = addDays(key, 1)) if (customDayIndex(t, key) >= 0) out.push(key);
+    return out;
+  }
+  function horizonTag(t) {
+    if (t.scheduleType !== 'custom' || customRRule(t)) return '';
+    var today = localDateKey(new Date());
+    return !t.endDate || t.endDate > addDays(today, LIST_HORIZON_DAYS - 40) ? today.slice(0, 7) : '';
+  }
+
+  // Repeat rule plus per-day changes (removed days and moved times) as Calendar recurrence lines.
+  function recurrenceLines(t, startKey) {
+    if (t.scheduleType === 'once') return [];
+    var tz = timeZone();
+    var lines = [];
+    if (t.scheduleType === 'custom') {
+      var rule = customRRule(t);
+      if (rule) lines.push(rule);
+      else listedDates(t, startKey).slice(1).forEach(function (k) { lines.push('RDATE;TZID=' + tz + ':' + icsLocal(k, t.scheduleTime)); });
+    } else if (t.scheduleType === 'daily') lines.push(t.weekdaysOnly ? 'RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR' : 'RRULE:FREQ=DAILY');
+    else if (t.scheduleType === 'weekly') lines.push('RRULE:FREQ=WEEKLY;BYDAY=' + RRULE_DAYS[Number(t.scheduleDayOfWeek) || 0]);
+    else lines.push('RRULE:FREQ=MONTHLY;BYMONTHDAY=' + Number(t.scheduleDayOfMonth));
+    Object.keys(t.exceptions || {}).sort().forEach(function (k) {
+      var ex = t.exceptions[k];
+      if (k < startKey || !scheduledOn(t, dateFromKey(k))) return;
+      if (ex.removed || (ex.time && ex.time !== t.scheduleTime)) lines.push('EXDATE;TZID=' + tz + ':' + icsLocal(k, t.scheduleTime));
+      if (!ex.removed && ex.time && ex.time !== t.scheduleTime) lines.push('RDATE;TZID=' + tz + ':' + icsLocal(k, ex.time));
+    });
+    return lines;
+  }
+
+  // Only removed days and moved times show in Google Calendar; per-day status and notes stay in the app.
+  function calendarExceptions(t) {
+    var ex = t.exceptions || {};
+    return Object.keys(ex).sort().map(function (k) { return [k, ex[k].removed ? 'x' : (ex[k].time || '')]; })
+      .filter(function (p) { return p[1]; });
   }
 
   function eventTitle(t) {
@@ -218,7 +356,8 @@
   // Everything that appears in the calendar event. If it changes, the event must be updated.
   function calSig(t) {
     return JSON.stringify([eventTitle(t), t.description || '', t.priority, t.status, t.scheduleType, t.scheduleTime,
-      t.scheduleDate || null, t.scheduleDayOfWeek, t.scheduleDayOfMonth, !!t.weekdaysOnly, Number(state.shared.reminderMinutes) || 0]);
+      t.scheduleDate || null, t.scheduleDayOfWeek, t.scheduleDayOfMonth, !!t.weekdaysOnly, Number(state.shared.reminderMinutes) || 0,
+      t.spanDays || null, t.repeatEvery || null, t.repeatUnit || null, t.endDate || null, calendarExceptions(t), horizonTag(t)]);
   }
 
   function calendarUpToDate(t) { return !!t.googleEventId && t.calSig === calSig(t); }
@@ -251,7 +390,8 @@
       '<h3 class="task-name">' + esc(t.taskName) + '</h3>' +
       (t.description ? '<p class="task-desc" title="' + esc(t.description) + '">' + esc(t.description) + '</p>' : '') +
       '<div class="task-meta"><span>' + esc(formatSchedule(t)) + '</span>' +
-      (showList ? '<span>' + esc(listName(t.listId)) + '</span>' : '') + syncFlag(t) + '</div>' +
+      (showList ? '<span>' + esc(listName(t.listId)) + '</span>' : '') +
+      (changedDayCount(t) ? '<span class="changed-flag">' + plural(changedDayCount(t), 'day') + ' changed</span>' : '') + syncFlag(t) + '</div>' +
       '</div><div class="badges">' +
       '<span class="badge p-' + esc(t.priority) + '">' + esc(t.priority) + '</span>' +
       '<span class="badge s-' + esc(t.status) + '">' + esc(String(t.status).replace('_', ' ')) + '</span>' +
@@ -281,7 +421,7 @@
         '<div class="column-header"><div class="column-title">' + c.title + ' <span class="count">' + col.length + '</span></div>' +
         '<button type="button" class="btn btn-primary btn-sm" data-action="add" data-type="' + c.type + '" aria-label="Add ' + c.title.toLowerCase().replace(' tasks', '') + ' task">+ Add</button></div>' +
         '<div class="column-body">' +
-         (col.length ? col.map(renderTask).join('') : '<div class="empty"><span class="empty-mark" aria-hidden="true">+</span><strong>' + (c.type === 'once' ? 'Nothing one-off planned' : 'A little room for a routine') + '</strong><p>No ' + c.title.toLowerCase() + ' yet. ' + (c.type === 'once' ? 'Add something that only needs doing once, on a set date.' : 'Add something you want to keep on track.') + '</p><button type="button" class="btn btn-dark" data-action="add" data-type="' + c.type + '">' + (c.type === 'once' ? 'Add a one-off task' : 'Add a ' + c.type + ' task') + '</button></div>') +
+         (col.length ? col.map(renderTask).join('') : '<div class="empty"><span class="empty-mark" aria-hidden="true">+</span><strong>' + (c.type === 'once' ? 'Nothing one-off planned' : c.type === 'custom' ? 'No custom repeats yet' : 'A little room for a routine') + '</strong><p>No ' + c.title.toLowerCase() + ' yet. ' + (c.type === 'once' ? 'Add something that only needs doing once, on a set date.' : c.type === 'custom' ? 'For things that run several days in a row and repeat, like a course every second weekend.' : 'Add something you want to keep on track.') + '</p><button type="button" class="btn btn-dark" data-action="add" data-type="' + c.type + '">' + (c.type === 'once' ? 'Add a one-off task' : c.type === 'custom' ? 'Add a custom repeat' : 'Add a ' + c.type + ' task') + '</button></div>') +
         '</div></div>';
     });
     $('columns').innerHTML = html;
@@ -298,9 +438,16 @@
     return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
   }
 
+  // Everything happening on a date, as occurrences ({ task, time, status, note, ... }).
   function tasksOn(date) {
-    return visibleTasks().filter(function (t) { return occursOn(t, date); })
-      .sort(function (a, b) { return a.scheduleTime.localeCompare(b.scheduleTime) || a.taskName.localeCompare(b.taskName); });
+    return visibleTasks().map(function (t) { return occurrence(t, date); }).filter(Boolean)
+      .sort(function (a, b) { return a.time.localeCompare(b.time) || a.task.taskName.localeCompare(b.task.taskName); });
+  }
+
+  function occAttrs(o) { return ' data-edit-task="' + esc(o.task.id) + '" data-occ-date="' + o.key + '"'; }
+  function blockLabel(o) {
+    var span = Number(o.task.spanDays) || 1;
+    return o.dayIndex >= 0 && span > 1 ? 'Day ' + (o.dayIndex + 1) + ' of ' + span : '';
   }
 
   function renderCalendar() {
@@ -321,25 +468,31 @@
         '" aria-pressed="' + (key === ui.selectedDate) + '"' + (key === today ? ' aria-current="date"' : '') +
         '><span class="day-number">' + day.getDate() + '</span><span class="mobile-day-count">' + (tasks.length ? tasks.length + (tasks.length === 1 ? ' task' : ' tasks') : '') + '</span></button>' +
         '<div class="calendar-events">';
-      tasks.slice(0, 3).forEach(function (t) {
-        html += '<button type="button" class="event-chip p-' + esc(t.priority) + (t.status === 'completed' ? ' completed' : '') +
-          '" data-edit-task="' + esc(t.id) + '" title="' + esc(t.scheduleTime + ' ' + t.taskName + ' · ' + listName(t.listId)) +
-          '"><span>' + esc(t.scheduleTime) + '</span> ' + esc(t.taskName) + '</button>';
+      tasks.slice(0, 3).forEach(function (o) {
+        var t = o.task;
+        html += '<button type="button" class="event-chip p-' + esc(t.priority) + (o.status === 'completed' ? ' completed' : '') + (o.changed ? ' changed' : '') +
+          '"' + occAttrs(o) + ' title="' + esc(o.time + ' ' + t.taskName + ' · ' + listName(t.listId) + (t.description ? '\n' + t.description : '') + (o.note ? '\n' + o.note : '')) +
+          '"><span>' + esc(o.time) + '</span> ' + esc(t.taskName) + '</button>';
       });
       if (tasks.length > 3) html += '<button type="button" class="more-events" data-date="' + key + '" data-show-agenda="true">+' + (tasks.length - 3) + ' more</button>';
       html += '</div><div class="mobile-dots" aria-hidden="true">';
-      tasks.slice(0, 4).forEach(function (t) { html += '<i class="dot p-' + esc(t.priority) + (t.status === 'completed' ? ' completed' : '') + '"></i>'; });
+      tasks.slice(0, 4).forEach(function (o) { html += '<i class="dot p-' + esc(o.task.priority) + (o.status === 'completed' ? ' completed' : '') + '"></i>'; });
       html += '</div></div>';
     }
     $('calendarGrid').innerHTML = html;
     var selected = dateFromKey(ui.selectedDate);
     $('agendaTitle').textContent = selected.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
     var agenda = tasksOn(selected);
-    $('agendaTasks').innerHTML = agenda.length ? agenda.map(function (t) {
-      return '<button type="button" class="agenda-item' + (t.status === 'completed' ? ' completed' : '') + '" data-edit-task="' + esc(t.id) + '">' +
-        '<span class="agenda-time">' + esc(t.scheduleTime) + '</span><i class="dot p-' + esc(t.priority) + '" aria-hidden="true"></i>' +
-        '<span class="agenda-details"><strong>' + esc(t.taskName) + '</strong><span>' + esc(listName(t.listId)) + ' · ' + esc(formatSchedule(t)) + '</span></span>' +
-        '<span class="agenda-status">' + esc(String(t.status).replace('_', ' ')) + '</span><span class="agenda-chevron" aria-hidden="true">&#8250;</span></button>';
+    $('agendaTasks').innerHTML = agenda.length ? agenda.map(function (o) {
+      var t = o.task;
+      var extra = [blockLabel(o), o.changed ? 'Changed for this day' : '', o.note].filter(Boolean).join(' · ');
+      return '<button type="button" class="agenda-item' + (o.status === 'completed' ? ' completed' : '') + '"' + occAttrs(o) + '>' +
+        '<span class="agenda-time">' + esc(o.time) + '</span><i class="dot p-' + esc(t.priority) + '" aria-hidden="true"></i>' +
+        '<span class="agenda-details"><strong>' + esc(t.taskName) + '</strong>' +
+        (t.description ? '<span class="agenda-desc">' + esc(t.description) + '</span>' : '') +
+        '<span>' + esc(listName(t.listId)) + ' · ' + esc(formatSchedule(t)) + '</span>' +
+        (extra ? '<span class="agenda-extra">' + esc(extra) + '</span>' : '') + '</span>' +
+        '<span class="agenda-status">' + esc(String(o.status).replace('_', ' ')) + '</span><span class="agenda-chevron" aria-hidden="true">&#8250;</span></button>';
     }).join('') : '<div class="agenda-empty"><span class="empty-mark" aria-hidden="true">—</span><div><strong>A little breathing room.</strong><p>' +
       (visibleTasks().length ? 'No tasks scheduled for this day.' : (liveTasks().length ? 'No tasks in this list yet. Choose another list or add a routine.' : 'Start with one small routine. Add your first task to see it on the calendar.')) +
       '</p></div></div>';
@@ -366,8 +519,90 @@
     $('weekdaysWrap').hidden = type !== 'daily';
     $('dowWrap').hidden = type !== 'weekly';
     $('domWrap').hidden = type !== 'monthly';
-    $('dateWrap').hidden = type !== 'once';
+    $('dateWrap').hidden = type !== 'once' && type !== 'custom';
+    $('dateLabel').textContent = type === 'custom' ? 'First day' : 'Date';
+    $('customWrap').hidden = type !== 'custom';
     $('routineNotice').hidden = type === 'once';
+    renderCustomPreview();
+    renderChangedDays();
+  }
+
+  // The schedule as currently filled in on the form (used for the preview and saving).
+  function formSchedule() {
+    var type = $('fScheduleType').value;
+    return {
+      scheduleType: type,
+      scheduleTime: $('fTime').value,
+      scheduleDayOfWeek: type === 'weekly' ? Number($('fDayOfWeek').value) : null,
+      scheduleDayOfMonth: type === 'monthly' ? Number($('fDayOfMonth').value) : null,
+      scheduleDate: type === 'once' || type === 'custom' ? $('fDate').value : null,
+      weekdaysOnly: type === 'daily' ? $('fWeekdays').checked : false,
+      spanDays: type === 'custom' ? Math.floor(Number($('fSpanDays').value)) : null,
+      repeatEvery: type === 'custom' ? Math.floor(Number($('fRepeatEvery').value)) : null,
+      repeatUnit: type === 'custom' ? $('fRepeatUnit').value : null,
+      endDate: type === 'custom' ? ($('fEndDate').value || null) : null
+    };
+  }
+
+  // Returns an error message, or '' if the custom repeat makes sense.
+  function customProblem(f) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(f.scheduleDate || '')) return 'Please choose the first day.';
+    if (!(f.spanDays >= 1 && f.spanDays <= 31)) return 'Days in a row must be between 1 and 31.';
+    if (!(f.repeatEvery >= 1 && f.repeatEvery <= 99)) return 'Repeat every must be between 1 and 99.';
+    var shortest = f.repeatEvery * UNIT_DAYS[f.repeatUnit];
+    if (f.spanDays > shortest) return 'Days in a row (' + f.spanDays + ') must fit inside the repeat (every ' + unitLabel(f.repeatEvery, f.repeatUnit) + ').';
+    if (f.endDate && f.endDate < f.scheduleDate) return 'Repeat until must be on or after the first day.';
+    return '';
+  }
+
+  function blockText(a, b) {
+    var o = { weekday: 'short', day: 'numeric', month: 'short' };
+    var da = dateFromKey(a), db = dateFromKey(b);
+    return a === b ? da.toLocaleDateString(undefined, o) : da.toLocaleDateString(undefined, o) + ' – ' + db.toLocaleDateString(undefined, o);
+  }
+
+  // Groups the task's upcoming days into runs of consecutive days.
+  function upcomingBlocks(t, fromKey, max) {
+    var blocks = [], cur = null, key = fromKey;
+    for (var i = 0; i < 800 && blocks.length <= max; i++, key = addDays(key, 1)) {
+      if (t.endDate && key > t.endDate) break;
+      if (occursOn(t, dateFromKey(key))) {
+        if (cur && addDays(cur.end, 1) === key) cur.end = key; else { cur = { start: key, end: key }; blocks.push(cur); }
+      }
+    }
+    return blocks.slice(0, max);
+  }
+
+  function renderCustomPreview() {
+    var box = $('customPreview');
+    if ($('fScheduleType').value !== 'custom') { box.innerHTML = ''; return; }
+    var f = formSchedule();
+    var problem = customProblem(f);
+    if (problem) { box.innerHTML = '<span class="preview-problem">' + esc(problem) + '</span>'; return; }
+    var draft = Object.assign({ exceptions: ui.draftExceptions }, f);
+    var today = localDateKey(new Date());
+    var from = f.scheduleDate > today ? f.scheduleDate : today;
+    var blocks = upcomingBlocks(draft, from, 4);
+    box.innerHTML = '<strong>' + (from === f.scheduleDate ? 'First dates' : 'Next dates') + '</strong>' +
+      (blocks.length ? '<ul>' + blocks.map(function (b) { return '<li>' + esc(blockText(b.start, b.end)) + '</li>'; }).join('') + '</ul>'
+        : '<p>No more dates in this schedule.</p>');
+  }
+
+  function describeChange(ex) {
+    if (ex.removed) return 'Removed';
+    return [ex.time ? 'time ' + ex.time : '', ex.status ? String(ex.status).replace('_', ' ') : '', ex.note ? '"' + ex.note + '"' : '']
+      .filter(Boolean).join(', ') || 'Changed';
+  }
+
+  function renderChangedDays() {
+    var ex = ui.draftExceptions || {};
+    var f = formSchedule();
+    var keys = Object.keys(ex).sort().filter(function (k) { return f.scheduleType !== 'once' && scheduledOn(f, dateFromKey(k)); });
+    $('changedDaysWrap').hidden = !keys.length;
+    $('changedDaysList').innerHTML = keys.map(function (k) {
+      return '<li><span><strong>' + esc(formatDate(k)) + '</strong> ' + esc(describeChange(ex[k])) + '</span>' +
+        '<button type="button" class="btn btn-dark btn-sm" data-restore="' + k + '">Restore</button></li>';
+    }).join('');
   }
 
   function openTaskModal(task, type) {
@@ -391,6 +626,11 @@
     $('fDayOfWeek').value = String(task && task.scheduleDayOfWeek != null ? task.scheduleDayOfWeek : 1);
     $('fDayOfMonth').value = String(task && task.scheduleDayOfMonth != null ? task.scheduleDayOfMonth : 1);
     $('fDate').value = task && task.scheduleDate ? task.scheduleDate : localDateKey(new Date());
+    $('fSpanDays').value = String(task && task.spanDays ? task.spanDays : 3);
+    $('fRepeatEvery').value = String(task && task.repeatEvery ? task.repeatEvery : 2);
+    $('fRepeatUnit').value = task && task.repeatUnit ? task.repeatUnit : 'weeks';
+    $('fEndDate').value = task && task.endDate ? task.endDate : '';
+    ui.draftExceptions = Object.assign({}, task && task.exceptions);
     updateScheduleFields();
     $('taskOverlay').hidden = false;
     setTimeout(function () { $('fTaskName').focus(); }, 50);
@@ -407,21 +647,28 @@
     if (!/^\d{2}:\d{2}$/.test(time)) { err.textContent = 'Please choose a time.'; err.hidden = false; return; }
     var type = $('fScheduleType').value;
     if (type === 'once' && !/^\d{4}-\d{2}-\d{2}$/.test($('fDate').value)) { err.textContent = 'Please choose a date.'; err.hidden = false; return; }
+    var sched = formSchedule();
+    if (type === 'custom') {
+      var problem = customProblem(sched);
+      if (problem) { err.textContent = problem; err.hidden = false; return; }
+    }
+    // Keep only day changes that still fall on a scheduled day.
+    var exceptions = {};
+    if (type !== 'once') {
+      Object.keys(ui.draftExceptions || {}).forEach(function (k) {
+        if (scheduledOn(sched, dateFromKey(k))) exceptions[k] = ui.draftExceptions[k];
+      });
+    }
     var desc = $('fDescription').value.trim();
-    var data = {
+    var data = Object.assign(sched, {
       listId: $('fList').value,
       taskName: name,
       description: desc || null,
       priority: $('fPriority').value,
       status: $('fStatus').value,
-      scheduleType: type,
-      scheduleTime: time,
-      scheduleDayOfWeek: type === 'weekly' ? Number($('fDayOfWeek').value) : null,
-      scheduleDayOfMonth: type === 'monthly' ? Number($('fDayOfMonth').value) : null,
-      scheduleDate: type === 'once' ? $('fDate').value : null,
-      weekdaysOnly: type === 'daily' ? $('fWeekdays').checked : false,
+      exceptions: Object.keys(exceptions).length ? exceptions : null,
       updatedAt: Date.now()
-    };
+    });
     var editing = !!ui.editingId;
     if (editing) {
       var task = state.tasks.find(function (t) { return t.id === ui.editingId && !t.deleted; });
@@ -436,6 +683,62 @@
     closeOverlay('taskOverlay');
     commit();
     toast(editing ? 'Task updated' : 'Task created');
+  }
+
+  // ---------- One day of a repeating task ----------
+  function openOccurrence(task, key) {
+    var d = dateFromKey(key);
+    var o = occurrence(task, d);
+    if (!o) return;
+    ui.occ = { id: task.id, key: key };
+    $('occTaskName').textContent = task.taskName;
+    $('occDate').textContent = d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) +
+      (blockLabel(o) ? ' · ' + blockLabel(o) : '');
+    $('occSeries').textContent = formatSchedule(task);
+    $('occDesc').textContent = task.description || '';
+    $('occDesc').hidden = !task.description;
+    $('fOccTime').value = o.time;
+    $('fOccStatus').value = o.status;
+    $('fOccNote').value = o.note;
+    $('occResetBtn').hidden = !o.changed;
+    $('occOverlay').hidden = false;
+  }
+
+  function occTask() { return ui.occ && state.tasks.find(function (t) { return t.id === ui.occ.id && !t.deleted; }); }
+
+  function setException(task, key, ex) {
+    task.exceptions = Object.assign({}, task.exceptions);
+    if (ex) task.exceptions[key] = ex; else delete task.exceptions[key];
+    if (!Object.keys(task.exceptions).length) task.exceptions = null;
+    task.updatedAt = Date.now();
+  }
+
+  function saveOccurrence(e) {
+    e.preventDefault();
+    var task = occTask();
+    if (!task) return closeOverlay('occOverlay');
+    var ex = {};
+    var time = $('fOccTime').value, status = $('fOccStatus').value, note = $('fOccNote').value.trim();
+    if (time && time !== task.scheduleTime) ex.time = time;
+    if (status !== task.status) ex.status = status;
+    if (note) ex.note = note;
+    setException(task, ui.occ.key, Object.keys(ex).length ? ex : null);
+    closeOverlay('occOverlay');
+    commit();
+    toast('Saved for ' + formatDate(ui.occ.key));
+  }
+
+  async function removeOccurrence() {
+    var task = occTask();
+    if (!task) return;
+    var key = ui.occ.key;
+    $('occOverlay').hidden = true;
+    var ok = await confirmDialog('Remove this day?', 'Remove "' + task.taskName + '" on ' + formatDate(key) +
+      '? Only this day is removed; the rest of the schedule stays the same. You can restore it from Edit all days.', 'Remove day');
+    if (!ok) { $('occOverlay').hidden = false; return; }
+    setException(task, key, { removed: true });
+    commit();
+    toast('Removed ' + formatDate(key));
   }
 
   function tombstoneTask(t, now) {
@@ -632,7 +935,10 @@
 
   // ---------- Calendar ----------
   function eventBody(t) {
-    var start = nextOccurrence(t, new Date());
+    var today = new Date(); today.setHours(0, 0, 0, 0);
+    var start = nextOccurrence(t, today);
+    // A finished custom repeat keeps its last block so the event (and its history) stays in Calendar.
+    if (!start && t.scheduleType === 'custom') start = nextOccurrence(t, dateFromKey(t.scheduleDate));
     var end = new Date(start.getTime() + 30 * 60000);
     var tz = timeZone();
     var desc = (t.description ? t.description + '\n\n' : '') +
@@ -642,7 +948,7 @@
       description: desc,
       start: { dateTime: localDateTime(start), timeZone: tz },
       end: { dateTime: localDateTime(end), timeZone: tz },
-      recurrence: t.scheduleType === 'once' ? [] : [buildRRule(t)],
+      recurrence: recurrenceLines(t, localDateKey(start)),
       reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: Number(state.shared.reminderMinutes) || 0 }] }
     };
   }
@@ -841,16 +1147,18 @@
     var changed = false;
     Object.keys(fired).forEach(function (k) { if (fired[k] !== today) { delete fired[k]; changed = true; } });
     liveTasks().forEach(function (t) {
-      if (t.status === 'completed' || t.scheduleTime !== hhmm || !occursOn(t, target)) return;
+      var o = occurrence(t, target);
+      if (!o || o.status === 'completed' || o.time !== hhmm) return;
       // Tasks already in Google Calendar are reminded by Calendar itself; avoid double pop-ups.
       if (state.settings.connected && calendarUpToDate(t)) return;
       var key = t.id + '@' + localDateKey(target) + 'T' + hhmm;
       if (fired[key]) return;
       fired[key] = today;
       changed = true;
-      var when = lead ? 'In ' + lead + ' min (' + t.scheduleTime + ')' : 'Now (' + t.scheduleTime + ')';
-      showNotification(t.taskName, when + (t.description ? ' - ' + t.description : ''), key).then(function (shown) {
-        if (!shown) toast('Reminder: ' + t.taskName + ' at ' + t.scheduleTime);
+      var when = lead ? 'In ' + lead + ' min (' + o.time + ')' : 'Now (' + o.time + ')';
+      var extra = o.note || t.description;
+      showNotification(t.taskName, when + (extra ? ' - ' + extra : ''), key).then(function (shown) {
+        if (!shown) toast('Reminder: ' + t.taskName + ' at ' + o.time);
       });
     });
     if (changed) localStorage.setItem(FIRED_KEY, JSON.stringify(fired));
@@ -991,6 +1299,8 @@
     bindDialogAccessibility();
     window.PenPicker.enhance($('fDate'));
     window.PenPicker.enhance($('fTime'));
+    window.PenPicker.enhance($('fEndDate'));
+    window.PenPicker.enhance($('fOccTime'));
     document.querySelectorAll('[data-view]').forEach(function (b) {
       b.addEventListener('click', function () {
         ui.view = b.getAttribute('data-view');
@@ -1017,7 +1327,9 @@
       var taskButton = e.target.closest('[data-edit-task]');
       if (taskButton) {
         var task = liveTasks().find(function (t) { return t.id === taskButton.getAttribute('data-edit-task'); });
-        if (task) openTaskModal(task);
+        var occKey = taskButton.getAttribute('data-occ-date');
+        if (task && task.scheduleType !== 'once' && occKey) openOccurrence(task, occKey);
+        else if (task) openTaskModal(task);
         return;
       }
       var dayButton = e.target.closest('[data-date]');
@@ -1061,6 +1373,33 @@
 
     $('listFilter').addEventListener('change', function (e) { ui.listFilter = e.target.value; render(); });
     $('fScheduleType').addEventListener('change', updateScheduleFields);
+    ['fDate', 'fSpanDays', 'fRepeatEvery', 'fRepeatUnit', 'fEndDate', 'fDayOfWeek', 'fDayOfMonth', 'fWeekdays'].forEach(function (id) {
+      $(id).addEventListener('input', function () { renderCustomPreview(); renderChangedDays(); });
+      $(id).addEventListener('change', function () { renderCustomPreview(); renderChangedDays(); });
+    });
+    $('changedDaysList').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-restore]');
+      if (!b) return;
+      delete ui.draftExceptions[b.getAttribute('data-restore')];
+      renderChangedDays();
+      renderCustomPreview();
+      toast('Day restored - press ' + $('saveTaskBtn').textContent + ' to keep it');
+    });
+    $('occForm').addEventListener('submit', saveOccurrence);
+    $('occRemoveBtn').addEventListener('click', removeOccurrence);
+    $('occResetBtn').addEventListener('click', function () {
+      var task = occTask();
+      if (!task) return;
+      setException(task, ui.occ.key, null);
+      closeOverlay('occOverlay');
+      commit();
+      toast('Back to normal for ' + formatDate(ui.occ.key));
+    });
+    $('occSeriesBtn').addEventListener('click', function () {
+      var task = occTask();
+      closeOverlay('occOverlay');
+      if (task) openTaskModal(task);
+    });
     $('taskForm').addEventListener('submit', submitTask);
     $('deleteTaskBtn').addEventListener('click', function () { if (ui.editingId) deleteTask(ui.editingId); });
 
@@ -1069,7 +1408,7 @@
     });
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape' || !$('confirmOverlay').hidden) return;
-      ['taskOverlay', 'listsOverlay', 'settingsOverlay'].some(function (id) {
+      ['occOverlay', 'taskOverlay', 'listsOverlay', 'settingsOverlay'].some(function (id) {
         if (!$(id).hidden) { closeOverlay(id); return true; }
         return false;
       });

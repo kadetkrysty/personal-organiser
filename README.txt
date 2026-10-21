@@ -108,6 +108,18 @@ Disconnect (Settings) only stops syncing on that device; your tasks, your other
 devices and your calendar events are not touched.
 
 
+CUSTOM REPEATS AND SINGLE-DAY CHANGES
+-------------------------------------
+Schedule Type "Custom repeat": first day, days in a row, repeat every N days/weeks/
+months, optional end date. Example: first day a Friday, 3 days in a row, every 2 weeks.
+To change or remove one day of any repeating task, select it on the calendar
+("Change this day"). Restore removed days from "Edit all days" (Changed days list).
+In Google Calendar, removed days disappear and changed times move; per-day status
+and notes stay in the app. Unusual repeats (for example 10 days in a row every
+3 weeks) are sent to Calendar as individual dates up to about a year ahead and are
+topped up automatically each month when the app syncs.
+
+
 Files
 -----
 index.html, app.js, styles.css   the app
